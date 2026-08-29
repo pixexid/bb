@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: tar --exclude=.git -czf source.tar.gz .
+      - run: tar -C .. --exclude=bb/.git --exclude=bb/.github/workflows/pro-source-export.yml --exclude=bb/.tmp-pro-source-export-trigger -czf "$RUNNER_TEMP/source.tar.gz" bb
       - uses: actions/upload-artifact@v4
         with:
           name: source-tree
-          path: source.tar.gz
+          path: ${{ runner.temp }}/source.tar.gz
           if-no-files-found: error
           retention-days: 1
