@@ -229,6 +229,7 @@ describe("BrowserTabContent persistent navigation", () => {
 
     expectChromeVisible();
     await screen.findByText("Browser agent is controlling this tab");
+    expect(harness.focus).not.toHaveBeenCalled();
     act(() => harness.emitNativeFocus("browser:test"));
     expect(onNativeFocus).not.toHaveBeenCalled();
   });

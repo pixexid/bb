@@ -414,11 +414,13 @@ export function BrowserTabContent({
   } = useBrowserHistory(threadId);
 
   const [state, setState] = useState<BbDesktopBrowserState | null>(null);
-  const [control, setControl] = useState<BbDesktopBrowserControl | null>(null);
+  const [control, setControl] = useState<
+    BbDesktopBrowserControl | null | undefined
+  >(undefined);
   useEffect(() => {
     let current = true;
     let receivedEvent = false;
-    setControl(null);
+    setControl(undefined);
     const accept = (next: {
       tabId: string;
       threadId: string;
@@ -432,12 +434,18 @@ export function BrowserTabContent({
       receivedEvent = true;
       accept(next);
     });
-    void desktopBrowser
-      ?.getControl?.(tabId)
-      .then((next) => {
-        if (next !== null && !receivedEvent) accept(next);
-      })
-      .catch(() => undefined);
+    if (desktopBrowser?.getControl === undefined) {
+      setControl(null);
+    } else {
+      void desktopBrowser
+        .getControl(tabId)
+        .then((next) => {
+          if (next !== null && !receivedEvent) accept(next);
+        })
+        .catch(() => {
+          if (current && !receivedEvent) setControl(null);
+        });
+    }
     return () => {
       current = false;
       unsubscribe?.();
@@ -660,7 +668,7 @@ export function BrowserTabContent({
     }
     if (isViewVisible) {
       visibilityCoordinator.show(tabId, syncBounds, {
-        focus: canHandleBrowserCommands,
+        focus: canHandleBrowserCommands && control === null,
       });
       return () => {
         visibilityCoordinator.hide(tabId);
@@ -669,6 +677,7 @@ export function BrowserTabContent({
     visibilityCoordinator.hide(tabId);
   }, [
     canHandleBrowserCommands,
+    control,
     visibilityCoordinator,
     tabId,
     isViewVisible,
@@ -685,9 +694,9 @@ export function BrowserTabContent({
   }, [control, desktopBrowser, onNativeFocus, tabId]);
 
   useEffect(() => {
-    if (!isViewVisible || !canHandleBrowserCommands) return;
+    if (!isViewVisible || !canHandleBrowserCommands || control !== null) return;
     desktopBrowser?.focus?.(tabId);
-  }, [canHandleBrowserCommands, desktopBrowser, isViewVisible, tabId]);
+  }, [canHandleBrowserCommands, control, desktopBrowser, isViewVisible, tabId]);
 
   useEffect(() => {
     if (addressFocusRequest === null) {
@@ -888,7 +897,7 @@ export function BrowserTabContent({
           />
         }
       />
-      {control !== null ? (
+      {control !== null && control !== undefined ? (
         <div
           role="status"
           className="flex shrink-0 items-center gap-3 border-b border-border bg-surface-recessed px-3 py-2 text-xs"
