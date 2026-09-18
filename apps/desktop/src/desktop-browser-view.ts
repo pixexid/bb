@@ -183,6 +183,7 @@ interface BrowserViewEntry {
   rendererRecoveryAttempts: number;
   rendererRecoveryState: "healthy" | "pending" | "blocked";
   rendererRecoveryTimer: ReturnType<typeof setTimeout> | null;
+  preserveHostFocus: boolean;
   suppressNextFocusNotification: boolean;
   visible: boolean;
   activeFindRequestId: number | null;
@@ -676,6 +677,10 @@ export function createDesktopBrowserViewManager(
     }
 
     webContents.on("focus", () => {
+      if (entry.preserveHostFocus) {
+        args.focusHostWebContents(hostWindow.webContents.id);
+        return;
+      }
       if (entry.suppressNextFocusNotification) {
         entry.suppressNextFocusNotification = false;
         return;
@@ -868,6 +873,7 @@ export function createDesktopBrowserViewManager(
       rendererRecoveryAttempts: 0,
       rendererRecoveryState: "healthy",
       rendererRecoveryTimer: null,
+      preserveHostFocus: false,
       suppressNextFocusNotification: false,
       visible: false,
       activeFindRequestId: null,
@@ -971,6 +977,7 @@ export function createDesktopBrowserViewManager(
   }
 
   function focusEntryWithoutNotifying(entry: BrowserViewEntry): void {
+    entry.preserveHostFocus = false;
     entry.suppressNextFocusNotification = true;
     entry.webContents.focus();
     setTimeout(() => {
@@ -988,6 +995,7 @@ export function createDesktopBrowserViewManager(
     withEntry({ hostWindow, tabId: request.tabId }, (entry) => {
       const wasVisible = entry.visible;
       entry.visible = request.visible;
+      if (request.visible) entry.preserveHostFocus = !focusOnShow;
       applyEntryVisibility(entry, hostWindow);
       scheduleEntryRendererRecovery(entry, hostWindow, request.tabId);
       if (
