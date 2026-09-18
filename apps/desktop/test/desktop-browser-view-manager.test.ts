@@ -3534,7 +3534,9 @@ describe("DesktopBrowserViewManager", () => {
   });
 
   it("shows a browser beside a focused non-browser pane without stealing focus", () => {
+    const focusHostWebContents = vi.fn();
     const manager = createDesktopBrowserViewManager({
+      focusHostWebContents,
       partition: "persist:test",
     });
     const hostWindow = new FakeHostWindow({
@@ -3560,6 +3562,11 @@ describe("DesktopBrowserViewManager", () => {
     });
     expect(browserView.visible).toBe(true);
     expect(browserView.webContents.focusCalls).toBe(0);
+    browserView.webContents.emitFocus();
+    expect(focusHostWebContents).toHaveBeenCalledWith(82);
+    expect(hostWindow.webContents.sentChannels).not.toContain(
+      "bb-desktop:browser:focused",
+    );
 
     manager.setVisibleWithoutFocus({
       hostWindow,
