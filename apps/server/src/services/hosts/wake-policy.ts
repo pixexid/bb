@@ -69,6 +69,7 @@ const hostCommandWakePolicy = {
   "provider.installation.run": "work",
   "provider.usage": "work",
   "workspace.status": "work",
+  "workspace.refreshBase": "work",
   "workspace.diff": "work",
   "workspace.diffFiles": "work",
   "workspace.diffPatch": "work",

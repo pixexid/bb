@@ -17,6 +17,7 @@ import { threadOriginKindValues } from "@bb/domain/thread-origin-kind";
 import { threadVisibilityValues } from "@bb/domain/thread-visibility";
 import type {
   EnvironmentProviderSelection,
+  WorkspaceBaseFreshness,
   JsonValue,
   EnvironmentStatus,
   FaviconColorPreference,
@@ -523,6 +524,9 @@ export const environments = sqliteTable(
     baseBranch: text("base_branch"),
     defaultBranch: text("default_branch"),
     mergeBaseBranch: text("merge_base_branch"),
+    baseFreshness: text("base_freshness", {
+      mode: "json",
+    }).$type<WorkspaceBaseFreshness>(),
     environmentProviderId: text("environment_provider_id"),
     environmentProviderPluginId: text("environment_provider_plugin_id"),
     providerOwnsPath: integer("provider_owns_path", { mode: "boolean" })

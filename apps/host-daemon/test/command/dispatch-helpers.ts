@@ -88,6 +88,9 @@ interface FakeWorkspaceState {
   pullRequest: GitHostPullRequest | null;
   pullRequestLookupError: string | null;
   pullRequestLookupShellPath: string | undefined;
+  lastRefreshBaseArgs:
+    | { mergeBaseBranch: string; allowFastForward: boolean }
+    | undefined;
   statusReads: number;
 }
 
@@ -147,6 +150,7 @@ export function createFakeWorkspace(pathname: string) {
     pullRequest: null,
     pullRequestLookupError: null,
     pullRequestLookupShellPath: undefined,
+    lastRefreshBaseArgs: undefined,
   };
   const workspace: FakeHostWorkspace = {
     path: pathname,
@@ -154,6 +158,21 @@ export function createFakeWorkspace(pathname: string) {
     isWorktree: false,
     async getDefaultBranch() {
       return "main";
+    },
+    async refreshBase(args) {
+      state.lastRefreshBaseArgs = args;
+      return {
+        mergeBaseBranch: args.mergeBaseBranch,
+        remoteRef: "origin/main",
+        remoteSha: "b".repeat(40),
+        headSha: "a".repeat(40),
+        aheadCount: 0,
+        behindCount: 3,
+        hasUncommittedChanges: false,
+        fastForwarded: false,
+        fetchError: null,
+        checkedAt: 1,
+      };
     },
     async getCurrentBranch() {
       return "main";

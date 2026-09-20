@@ -4,10 +4,15 @@ import {
   formatEnvironmentDisplay,
 } from "@bb/core-ui";
 import type { BbSdk } from "@bb/sdk";
+import {
+  describeWorkspaceBaseFreshness,
+  type WorkspaceBaseFreshness,
+} from "@bb/domain";
 
 export interface ThreadEnvironmentInfo {
   display: EnvironmentDisplayInfo;
   hostId: string;
+  baseFreshness: WorkspaceBaseFreshness | null;
 }
 
 async function resolveEnvironmentProvider(args: {
@@ -55,6 +60,7 @@ export async function fetchEnvironmentInfo(args: {
         }),
       }),
       hostId: env.hostId,
+      baseFreshness: env.baseFreshness,
     };
   } catch {
     return null;
@@ -63,4 +69,16 @@ export async function fetchEnvironmentInfo(args: {
 
 export function printEnvironmentInfo(env: ThreadEnvironmentInfo): void {
   console.log(`  Environment: ${env.display.modeLabel} (${env.display.id})`);
+  printBaseFreshness(env.baseFreshness, "  ");
+}
+
+export function printBaseFreshness(
+  freshness: WorkspaceBaseFreshness | null,
+  indent: string,
+): void {
+  if (freshness === null) return;
+  const summary = describeWorkspaceBaseFreshness(freshness);
+  console.log(
+    `${indent}Base freshness: ${summary ?? `up to date with ${freshness.remoteRef ?? freshness.mergeBaseBranch}`}`,
+  );
 }

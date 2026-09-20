@@ -262,6 +262,9 @@ function createFakeWorkspace(path: string): HostWorkspace {
     getLocalStateFingerprint: vi.fn(async () => "local-1"),
     getSharedGitRefsFingerprint: vi.fn(async () => "refs-1"),
     getAdditionalWorkspaceWriteRoots: vi.fn(async () => []),
+    refreshBase: vi.fn(async () => {
+      throw new Error("Unexpected refreshBase call");
+    }),
     getStatus: vi.fn(async () =>
       makeWorkspaceStatus({
         mergeBase: makeWorkspaceMergeBase(),

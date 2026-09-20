@@ -48,8 +48,33 @@ pnpm bb thread spawn \
   --prompt "..."
 ```
 
-Omit `--base-branch` for bb's smart default. Explicit values are exact:
-`main` is local and `origin/main` is remote.
+Omit `--base-branch` for bb's smart default.
+
+## Base freshness
+
+bb never bases a worktree on a stale ref. Before `git worktree add`, it
+resolves the requested base to its remote-tracking counterpart, fetches that
+counterpart, and records the exact SHA it used in the provisioning transcript:
+
+- `origin/main` fetches `origin/main` and starts there.
+- `main` fetches the branch's configured upstream and starts at the remote
+  head, unless your local `main` is ahead of or diverged from it, in which case
+  your local commits win.
+- A branch or tag with no upstream is local-only: bb does not fetch and starts
+  at the local ref exactly as you asked.
+- A failed fetch fails provisioning rather than quietly falling back to a stale
+  ref.
+
+A long-lived worktree also drifts after later merges, so bb re-checks its
+merge base before every turn. If the worktree is clean, zero commits ahead, and
+behind, bb fast-forwards it before the agent runs. If it is dirty, locally
+ahead, diverged, or the fetch fails, bb changes nothing and instead tells the
+agent — with the exact refs, SHAs, and ahead/behind counts — that its view of
+the base branch is stale or unknown, so "this code does not exist" findings do
+not silently come from an old tree.
+
+`bb status` and `bb environment status <id>` print the same `Base freshness`
+line, and `bb environment get <id> --json` exposes it as `baseFreshness`.
 
 ## Copy local files with `.worktreeinclude`
 

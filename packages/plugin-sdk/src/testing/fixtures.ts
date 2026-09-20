@@ -240,6 +240,7 @@ export function makeMessageDispatchHookContext(
     baseBranch: null,
     defaultBranch: "main",
     mergeBaseBranch: null,
+    baseFreshness: null,
     environmentProviderId: null,
     environmentProviderSelection: null,
     environmentProviderInstanceKey: null,

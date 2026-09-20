@@ -23,7 +23,7 @@ export const JSON_SHAPE_BY_COMMAND_PATH: Readonly<Record<string, string>> = {
   "environment list":
     "[{id, name, projectId, hostId, path, branchName, status, lifecycle}]    (bare array)",
   "environment show":
-    "{id, name, projectId, hostId, path, branchName, baseBranch, status, lifecycle}",
+    "{id, name, projectId, hostId, path, branchName, baseBranch, baseFreshness, status, lifecycle}",
   "terminal list":
     "{sessions: [{id, title, status, exitCode, closeReason, cols, rows}]}    (wrapped in .sessions)",
   "terminal output":

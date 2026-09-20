@@ -148,6 +148,7 @@ describe("worktree resource operations", () => {
           baseBranch: "main",
           defaultBranch: "main",
           mergeBaseBranch: "main",
+          baseFreshness: null,
           status: "destroyed",
           environmentProviderId: GIT_WORKTREE_ENVIRONMENT_PROVIDER_ID,
           lifecycle: {

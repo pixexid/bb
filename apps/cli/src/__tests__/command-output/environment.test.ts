@@ -348,6 +348,7 @@ describe("bb environment command output", () => {
     const get = vi.fn(async () => ({
       outcome: "available",
       workspace: workspaceStatus,
+      baseFreshness: null,
     }));
     stubServerApi({ "v1.environments.:id.status.$get": get });
 
@@ -381,6 +382,7 @@ describe("bb environment command output", () => {
     const response = {
       outcome: "available",
       workspace: workspaceStatus,
+      baseFreshness: null,
     };
     stubServerApi({
       "v1.environments.:id.status.$get": vi.fn(async () => response),
@@ -407,6 +409,7 @@ describe("bb environment command output", () => {
             lineStatsComplete: false,
           },
         },
+        baseFreshness: null,
       })),
     });
 

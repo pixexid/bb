@@ -146,6 +146,8 @@ bb skill list --environment "$BB_ENVIRONMENT_ID" --json
 Confirm the command result and any affected thread, environment, plugin, or
 remote service. Report the stable ID or URL that the user needs next.
 
+`bb status` and `bb environment status <id>` print a `Base freshness` line for a managed worktree: bb refreshes the merge-base remote before every turn, fast-forwards a clean zero-ahead workspace, and otherwise reports the exact refs, SHAs, and ahead/behind counts rather than mutating a dirty, ahead, or diverged workspace. A failed fetch reports unknown freshness; it never reads as current. `bb environment get <id> --json` exposes the same record as `baseFreshness`.
+
 `bb environment show <id>` reports core-owned lifecycle, retirement deadline and teardown attempts. Archive/delete of the last live thread starts the provider grace; unarchive cancels pending retirement. Teardown errors remain visible and retry automatically. `bb environment delete <id>` requests cleanup immediately, including under a never-retire policy; destroyed is recorded after cleanup completes. Removal waits for live or stopping runtimes. Project source deletion remains available during project deletion, including removal of the last source, so providers can finish cleanup.
 
 ## Plugin configuration

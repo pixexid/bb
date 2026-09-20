@@ -15,6 +15,7 @@ import { action } from "../action.js";
 import { createCliBbSdk } from "../client.js";
 import { resolveMachineHostId, resolveMachineTargetOption } from "./machine.js";
 import { collectOption, outputJson, prependErrorContext } from "./helpers.js";
+import { printBaseFreshness } from "./environment-helpers.js";
 
 interface EnvironmentCommitCommandOptions {
   json?: boolean;
@@ -547,6 +548,7 @@ export function registerEnvironmentCommands(
           console.log(`Ahead: ${status.mergeBase.aheadCount}`);
           console.log(`Behind: ${status.mergeBase.behindCount}`);
         }
+        printBaseFreshness(result.baseFreshness, "");
       }),
     );
 

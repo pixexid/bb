@@ -1,4 +1,8 @@
-import type { ProvisioningTranscriptEntry, WorkspaceStatus } from "@bb/domain";
+import type {
+  ProvisioningTranscriptEntry,
+  WorkspaceBaseFreshness,
+  WorkspaceStatus,
+} from "@bb/domain";
 import { pathExists } from "@bb/process-utils";
 import type {
   CommitOptions,
@@ -68,6 +72,10 @@ export interface HostWorkspace {
   getSharedGitRefsFingerprint(): Promise<string>;
   getAdditionalWorkspaceWriteRoots(): Promise<string[]>;
   getStatus(options?: StatusOptions): Promise<WorkspaceStatus>;
+  refreshBase(args: {
+    mergeBaseBranch: string;
+    allowFastForward: boolean;
+  }): Promise<WorkspaceBaseFreshness>;
   getDiff(options?: DiffOptions): Promise<DiffResult>;
   diffFiles(args: DiffFilesArgs): Promise<DiffFilesResult>;
   diffPatch(args: DiffPatchArgs): Promise<DiffPatchEntry[]>;
@@ -145,6 +153,13 @@ class ProvisionedHostWorkspace implements HostWorkspace {
 
   getStatus(options?: StatusOptions): Promise<WorkspaceStatus> {
     return this.ws.getStatus(options);
+  }
+
+  refreshBase(args: {
+    mergeBaseBranch: string;
+    allowFastForward: boolean;
+  }): Promise<WorkspaceBaseFreshness> {
+    return this.ws.refreshBase(args);
   }
 
   getDiff(options?: DiffOptions): Promise<DiffResult> {

@@ -235,6 +235,7 @@ export {
   findProviderEnvironmentContainingPath,
   listRetiredLoadedEnvironmentIdsOnHost,
   markHostEnvironmentsDestroyed,
+  recordEnvironmentBaseFreshness,
   recordEnvironmentCurrentBranch,
   updateEnvironmentMetadata,
 } from "./environments.js";

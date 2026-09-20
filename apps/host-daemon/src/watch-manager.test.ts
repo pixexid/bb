@@ -50,6 +50,9 @@ function createFakeWorkspace(path: string, isGitRepo = true) {
       return sharedGitRefsFingerprint;
     }),
     getAdditionalWorkspaceWriteRoots: vi.fn(async () => []),
+    refreshBase: vi.fn(async () => {
+      throw new Error("Unexpected refreshBase call");
+    }),
     getStatus: vi.fn(async () =>
       makeWorkspaceStatus({
         mergeBase: makeWorkspaceMergeBase(),

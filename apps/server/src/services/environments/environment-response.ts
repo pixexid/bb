@@ -61,6 +61,7 @@ export function toEnvironmentResponse(row: EnvironmentRow): Environment {
     baseBranch: row.baseBranch,
     defaultBranch: row.defaultBranch,
     mergeBaseBranch: row.mergeBaseBranch,
+    baseFreshness: row.baseFreshness ?? null,
     status: row.status,
     environmentProviderId: row.environmentProviderId,
     lifecycle: {

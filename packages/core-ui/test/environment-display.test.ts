@@ -48,6 +48,7 @@ function makeEnvironment(overrides?: Partial<Environment>): Environment {
     isGitRepo: true,
     isWorktree: false,
     baseBranch: null,
+    baseFreshness: null,
     branchName: null,
     defaultBranch: null,
     mergeBaseBranch: null,

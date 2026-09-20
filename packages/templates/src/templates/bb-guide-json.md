@@ -89,7 +89,7 @@ Fields beyond those shown exist; these are the ones scripts use.
     [{id, name, projectId, hostId, path, branchName, status, lifecycle}]    (bare array)
 
   bb environment show <id> --json
-    {id, name, projectId, hostId, path, branchName, baseBranch, status, lifecycle}
+    {id, name, projectId, hostId, path, branchName, baseBranch, baseFreshness, status, lifecycle}
 
   bb terminal list --thread <id> --json
     {sessions: [{id, title, status, exitCode, closeReason, cols, rows}]}    (wrapped in .sessions)

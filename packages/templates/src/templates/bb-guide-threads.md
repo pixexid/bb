@@ -80,8 +80,9 @@ Spawning:
   workspace. It cannot be combined with an existing environment ID because that
   environment already selects its machine. Without the flag, local/server
   machine resolution is unchanged.
-  Omit --base-branch for bb's default. Explicit values are exact; use
-  origin/<branch> for a remote ref.
+  Omit --base-branch for bb's default. bb fetches the requested base's
+  remote-tracking counterpart and starts the worktree at that exact SHA;
+  a ref with no upstream stays local-only and is used as given.
   Before selecting a provider, run `bb environment providers --project <id>
   --machine <id-or-name>` to see whether it is available, needs setup, or is
   unavailable and why. The first-party providers are Project checkout,

@@ -115,6 +115,7 @@ function makeStatusResponse(
       branch: { currentBranch: "feature", defaultBranch: "main" },
       mergeBase: makeWorkspaceMergeBase({ baseRef: "origin/main" }),
     }),
+    baseFreshness: null,
   };
 }
 

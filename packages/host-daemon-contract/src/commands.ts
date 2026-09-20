@@ -21,6 +21,7 @@ import {
   runtimeThreadExecutionOptionsSchema,
   rawDiffFileStatSchema,
   workspaceDiffTargetSchema,
+  workspaceBaseFreshnessSchema,
   workspaceStatusSchema,
   gitHostPullRequestSchema,
   clientTurnRequestIdSchema,
@@ -927,6 +928,14 @@ const workspaceStatusCommandSchema = hostDaemonWorkspaceTargetSchema.extend({
   maxUntrackedLineStatBytes: z.number().int().positive(),
 });
 
+const workspaceRefreshBaseCommandSchema = hostDaemonWorkspaceTargetSchema
+  .extend({
+    type: z.literal("workspace.refreshBase"),
+    mergeBaseBranch: gitBranchNameSchema,
+    allowFastForward: z.boolean(),
+  })
+  .strict();
+
 const workspaceDiffCommandSchema = hostDaemonWorkspaceTargetSchema.extend({
   type: z.literal("workspace.diff"),
   target: workspaceDiffTargetSchema,
@@ -1039,6 +1048,21 @@ const workspaceStatusResultSchema = z.discriminatedUnion("outcome", [
     .object({
       outcome: z.literal("available"),
       workspaceStatus: workspaceStatusSchema,
+    })
+    .strict(),
+  z
+    .object({
+      outcome: z.literal("unavailable"),
+      failure: workspaceResolutionFailureSchema,
+    })
+    .strict(),
+]);
+
+const workspaceRefreshBaseResultSchema = z.discriminatedUnion("outcome", [
+  z
+    .object({
+      outcome: z.literal("available"),
+      freshness: workspaceBaseFreshnessSchema,
     })
     .strict(),
   z
@@ -1875,6 +1899,15 @@ export const hostDaemonCommandRegistry = {
     resultSchema: workspaceStatusResultSchema,
     transport: "onlineRpc",
     retryable: true,
+    flushEventsBeforeResult: false,
+    envLane: "read",
+  }),
+  "workspace.refreshBase": defineHostDaemonCommandDescriptor({
+    type: "workspace.refreshBase",
+    schema: workspaceRefreshBaseCommandSchema,
+    resultSchema: workspaceRefreshBaseResultSchema,
+    transport: "onlineRpc",
+    retryable: false,
     flushEventsBeforeResult: false,
     envLane: "read",
   }),

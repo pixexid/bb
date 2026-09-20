@@ -38,6 +38,10 @@ import {
   readWorkspaceAgentInstructions,
 } from "./workspace-agent-instructions.js";
 import { resolveDeprecatedWorkspaceProvisionType } from "../environments/environment-response.js";
+import {
+  baseFreshnessInstructions,
+  refreshEnvironmentBaseFreshness,
+} from "../environments/workspace-base-freshness.js";
 
 const UPDATE_ENVIRONMENT_DIRECTORY_INSTRUCTIONS =
   "If the user asks you to move this thread to another checkout, worktree, or directory, make sure the target directory exists, then call `update_environment_directory` with its absolute path. After it succeeds, stop work in the current turn; future turns will run in the updated environment.";
@@ -223,7 +227,13 @@ export async function resolveThreadRuntimeCommandConfig(
   const dynamicTools = dynamicToolContributions.map(
     (contribution) => contribution.tool,
   );
+  const baseFreshness = baseFreshnessInstructions(
+    await refreshEnvironmentBaseFreshness(deps, environment),
+  );
   const instructionSections: string[] = [];
+  if (baseFreshness !== null) {
+    instructionSections.push(baseFreshness);
+  }
   for (const contribution of dynamicToolContributions) {
     if (!contribution.instructions) continue;
     if (contribution.pluginId === null) {

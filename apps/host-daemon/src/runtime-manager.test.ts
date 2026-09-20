@@ -173,6 +173,9 @@ function createFakeWorkspace(path: string, isGitRepo = true) {
     }),
     getAdditionalWorkspaceWriteRoots: vi.fn(async () => []),
     getStatus: vi.fn(async () => status),
+    refreshBase: vi.fn(async () => {
+      throw new Error("Unexpected refreshBase call");
+    }),
     getDiff: vi.fn(async () => diff),
     diffFiles: vi.fn(async () => ({
       files: [],

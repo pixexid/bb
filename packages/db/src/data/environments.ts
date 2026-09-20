@@ -6,6 +6,7 @@ import type {
   EnvironmentLifecycleNoopReason,
   EnvironmentProviderSelection,
   EnvironmentStatus,
+  WorkspaceBaseFreshness,
 } from "@bb/domain";
 import { evaluateEnvironmentLifecycleEvent } from "@bb/domain";
 import type { DbConnection, DbTransaction } from "../connection.js";
@@ -403,6 +404,24 @@ export function recordProvisionedEnvironmentWorkspace(
       ? { mergeBaseBranch: input.mergeBaseBranch }
       : {}),
   });
+}
+
+export function recordEnvironmentBaseFreshness(
+  db: EnvironmentWriteConnection,
+  notifier: DbNotifier,
+  id: string,
+  freshness: WorkspaceBaseFreshness,
+): EnvironmentRow | undefined {
+  const updated = db
+    .update(environments)
+    .set({ baseFreshness: freshness, updatedAt: Date.now() })
+    .where(eq(environments.id, id))
+    .returning()
+    .get();
+  if (updated !== undefined) {
+    notifier.notifyEnvironment(id, ["metadata-changed"]);
+  }
+  return updated;
 }
 
 export type ApplyEnvironmentLifecycleEventNoopReason =

@@ -112,7 +112,8 @@ Making your repo work with bb:
                                           provider removal completes
   bb environment show <id>                Show environment details (path, branch, status, lifecycle, retirement deadline and teardown attempts)
 
-  bb environment status <id>              Show workspace status
+  bb environment status <id>              Show workspace status, including the
+                                          managed-worktree Base freshness line
     --merge-base-branch <branch>          Include merge-base status
 
   bb environment branches <id>            List local and remote branches

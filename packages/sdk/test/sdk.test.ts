@@ -31,6 +31,7 @@ function makeEnvironment(overrides: EnvironmentOverrides = {}): Environment {
     projectId: "proj_test",
     hostId: "host_test",
     path: "/workspace",
+    baseFreshness: null,
     isGitRepo: true,
     isWorktree: false,
     baseBranch: null,

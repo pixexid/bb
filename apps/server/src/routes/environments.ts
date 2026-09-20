@@ -397,6 +397,7 @@ export function registerEnvironmentRoutes(app: Hono, deps: AppDeps): void {
     return context.json({
       outcome: "available",
       workspace: result.workspaceStatus,
+      baseFreshness: environment.baseFreshness ?? null,
     });
   });
 

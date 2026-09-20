@@ -6,6 +6,7 @@ import {
   gitBranchOptionsSchema,
   threadGitDiffResponseSchema,
   threadPullRequestSchema,
+  workspaceBaseFreshnessSchema,
   workspaceDiffTargetSchema,
   workspaceStatusSchema,
 } from "@bb/domain";
@@ -265,6 +266,7 @@ export const environmentStatusResponseSchema = z.discriminatedUnion("outcome", [
     .object({
       outcome: z.literal("available"),
       workspace: workspaceStatusSchema,
+      baseFreshness: workspaceBaseFreshnessSchema.nullable().default(null),
     })
     .strict(),
   environmentWorkspaceNotApplicableOutcomeSchema,

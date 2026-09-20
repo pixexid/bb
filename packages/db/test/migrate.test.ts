@@ -337,6 +337,7 @@ function dropRewindAddedTables(db: DbConnection): void {
     .prepare("ALTER TABLE hosts DROP COLUMN last_rejected_protocol_version")
     .run();
   dropHostMaxPermissionModeColumn(db);
+  dropEnvironmentBaseFreshnessColumn(db);
   dropEnvironmentRetireRequestedAtColumn(db);
   dropPluginArtifactGitCheckoutRootColumn(db);
   dropThreadSectionSchema(db);
@@ -737,6 +738,7 @@ function dropMarketplaceStatsColumn(db: DbConnection): void {
  * 0108's, so the replay recreates the table before 0110 drops it again.
  */
 function rewindEnvironmentProvisioningMigration(db: DbConnection): void {
+  dropEnvironmentBaseFreshnessColumn(db);
   db.$client.exec("DROP TRIGGER IF EXISTS threads_lifecycle_owner_insert");
   db.$client.exec("DROP TRIGGER IF EXISTS threads_lifecycle_owner_immutable");
   db.$client.exec("DROP INDEX IF EXISTS threads_lifecycle_owner_idx");
@@ -1058,6 +1060,17 @@ function dropPluginArtifactGitCheckoutRootColumn(db: DbConnection): void {
   }
 }
 
+function dropEnvironmentBaseFreshnessColumn(db: DbConnection): void {
+  const columns = db.$client
+    .prepare<[], TableInfoRow>("PRAGMA table_info(environments)")
+    .all();
+  if (columns.some((column) => column.name === "base_freshness")) {
+    db.$client
+      .prepare("ALTER TABLE environments DROP COLUMN base_freshness")
+      .run();
+  }
+}
+
 function dropEnvironmentRetireRequestedAtColumn(db: DbConnection): void {
   const columns = db.$client
     .prepare<[], TableInfoRow>("PRAGMA table_info(environments)")
@@ -1109,6 +1122,7 @@ function dropQueuedMessageSenderThreadIdColumn(db: DbConnection): void {
 function dropPost0023Tables(db: DbConnection): void {
   dropEventParentToolCallIdColumn(db);
   dropQueueReworkSchema(db);
+  dropEnvironmentBaseFreshnessColumn(db);
   dropEnvironmentRetireRequestedAtColumn(db);
   dropPluginArtifactGitCheckoutRootColumn(db);
   dropProjectGitRemoteUrlColumn(db);
@@ -2525,7 +2539,8 @@ describe("migrate", () => {
       dropAppSettingsValuesTable(db);
       dropNewOnboardingExperimentColumn(db);
       dropHostMaxPermissionModeColumn(db);
-      dropEnvironmentRetireRequestedAtColumn(db);
+      dropEnvironmentBaseFreshnessColumn(db);
+  dropEnvironmentRetireRequestedAtColumn(db);
       dropPluginArtifactGitCheckoutRootColumn(db);
       dropMarketplaceCatalogSchema(db);
       dropEventParentToolCallIdColumn(db);
@@ -2932,7 +2947,8 @@ describe("migrate", () => {
       dropAppSettingsValuesTable(db);
       dropNewOnboardingExperimentColumn(db);
       dropHostMaxPermissionModeColumn(db);
-      dropEnvironmentRetireRequestedAtColumn(db);
+      dropEnvironmentBaseFreshnessColumn(db);
+  dropEnvironmentRetireRequestedAtColumn(db);
       dropPluginArtifactGitCheckoutRootColumn(db);
       dropMarketplaceCatalogSchema(db);
       dropEventParentToolCallIdColumn(db);
@@ -3036,7 +3052,8 @@ describe("migrate", () => {
       dropAppSettingsValuesTable(db);
       dropNewOnboardingExperimentColumn(db);
       dropHostMaxPermissionModeColumn(db);
-      dropEnvironmentRetireRequestedAtColumn(db);
+      dropEnvironmentBaseFreshnessColumn(db);
+  dropEnvironmentRetireRequestedAtColumn(db);
       dropPluginArtifactGitCheckoutRootColumn(db);
       dropMarketplaceCatalogSchema(db);
       dropEventParentToolCallIdColumn(db);

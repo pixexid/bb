@@ -409,6 +409,7 @@ async function withResolvedBridgeLaunch<TResult>(
 async function readAvailableWorkspace<TAvailable extends object>(
   command: CommandOf<
     | "workspace.status"
+    | "workspace.refreshBase"
     | "workspace.diff"
     | "workspace.diffFiles"
     | "workspace.diffPatch"
@@ -693,6 +694,13 @@ const onlineRpcHandlers: OnlineRpcHandlerMap = {
         mergeBaseBranch: command.mergeBaseBranch,
         maxUntrackedLineStatFiles: command.maxUntrackedLineStatFiles,
         maxUntrackedLineStatBytes: command.maxUntrackedLineStatBytes,
+      }),
+    })),
+  "workspace.refreshBase": (command, options) =>
+    readAvailableWorkspace(command, options, async (workspace) => ({
+      freshness: await workspace.refreshBase({
+        mergeBaseBranch: command.mergeBaseBranch,
+        allowFastForward: command.allowFastForward,
       }),
     })),
   "workspace.diff": (command, options) =>

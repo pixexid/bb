@@ -4,6 +4,7 @@ import type {
   WorkspaceCommitSummary,
   WorkspaceDiffTarget,
   WorkspaceFileStatus,
+  WorkspaceBaseFreshness,
   WorkspaceFileStatusKind,
   WorkspaceStatus,
 } from "@bb/domain";
@@ -196,6 +197,7 @@ type ResolvedTrackedDiffRange = {
 
 type WorkspaceMutationWork<T> = () => Promise<T>;
 
+const WORKSPACE_BASE_FETCH_TIMEOUT_MS = 60_000;
 const WORKSPACE_STATUS_GIT_TIMEOUT_MS = 15_000;
 const WORKSPACE_STATUS_UNTRACKED_ENRICHMENT_TIMEOUT_MS = 10_000;
 const TEMPORARY_UNTRACKED_INDEX_ADD_ATTEMPTS = 3;
@@ -726,6 +728,161 @@ export class Workspace {
       checkout,
       mergeBase: mergeBaseData,
     };
+  }
+
+  async refreshBase(args: {
+    mergeBaseBranch: string;
+    allowFastForward: boolean;
+  }): Promise<WorkspaceBaseFreshness> {
+    await ensureGitRepo(this.path, this.gitProcessOptions);
+    const remoteRef = await this.resolveBaseRemoteRef(args.mergeBaseBranch);
+    let fetchError: string | null = null;
+    if (remoteRef !== null) {
+      const slash = remoteRef.indexOf("/");
+      const fetched = await this.runGit(
+        [
+          "fetch",
+          "--quiet",
+          remoteRef.slice(0, slash),
+          `+refs/heads/${remoteRef.slice(slash + 1)}:refs/remotes/${remoteRef}`,
+        ],
+        {
+          cwd: this.path,
+          allowFailure: true,
+          timeoutMs: WORKSPACE_BASE_FETCH_TIMEOUT_MS,
+          env: { GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
+        },
+      );
+      if (fetched.exitCode !== 0) {
+        fetchError =
+          fetched.stderr.trim().split("\n").slice(-1)[0] ||
+          `git fetch ${remoteRef} failed`;
+      }
+    }
+
+    const baseRef = remoteRef ?? args.mergeBaseBranch;
+    const counts = await this.readAheadBehind(baseRef);
+    const hasUncommittedChanges = await this.hasUncommittedChanges();
+    const canFastForward =
+      args.allowFastForward &&
+      fetchError === null &&
+      counts !== null &&
+      counts.ahead === 0 &&
+      counts.behind > 0 &&
+      !hasUncommittedChanges;
+    const fastForwarded = canFastForward
+      ? await this.withMutation(async () => {
+          const merged = await this.runGit(["merge", "--ff-only", baseRef], {
+            cwd: this.path,
+            allowFailure: true,
+            timeoutMs: WORKSPACE_STATUS_GIT_TIMEOUT_MS,
+          });
+          return merged.exitCode === 0;
+        })
+      : false;
+    const finalCounts = fastForwarded
+      ? await this.readAheadBehind(baseRef)
+      : counts;
+
+    return {
+      mergeBaseBranch: args.mergeBaseBranch,
+      remoteRef,
+      remoteSha: remoteRef === null ? null : await this.readCommitSha(baseRef),
+      headSha: await this.getHeadSha(),
+      aheadCount: finalCounts?.ahead ?? 0,
+      behindCount: finalCounts?.behind ?? 0,
+      hasUncommittedChanges,
+      fastForwarded,
+      fetchError:
+        fetchError ??
+        (finalCounts === null ? `Cannot compare HEAD with ${baseRef}` : null),
+      checkedAt: Date.now(),
+    };
+  }
+
+  private async resolveBaseRemoteRef(
+    mergeBaseBranch: string,
+  ): Promise<string | null> {
+    const remotes = (
+      await this.runGit(["remote"], {
+        cwd: this.path,
+        timeoutMs: WORKSPACE_STATUS_GIT_TIMEOUT_MS,
+      })
+    ).stdout
+      .split("\n")
+      .map((remote) => remote.trim())
+      .filter(Boolean);
+    const matching = remotes
+      .filter(
+        (remote) =>
+          mergeBaseBranch.startsWith(`${remote}/`) &&
+          mergeBaseBranch.length > remote.length + 1,
+      )
+      .sort((left, right) => right.length - left.length);
+    if (matching.length > 0) return mergeBaseBranch;
+
+    const upstream = await this.runGit(
+      ["rev-parse", "--symbolic-full-name", `${mergeBaseBranch}@{upstream}`],
+      {
+        cwd: this.path,
+        allowFailure: true,
+        timeoutMs: WORKSPACE_STATUS_GIT_TIMEOUT_MS,
+      },
+    );
+    if (upstream.exitCode !== 0) return null;
+    const resolved = upstream.stdout.trim();
+    return resolved.startsWith("refs/remotes/")
+      ? resolved.slice("refs/remotes/".length)
+      : null;
+  }
+
+  private async readCommitSha(ref: string): Promise<string | null> {
+    const result = await this.runGit(
+      ["rev-parse", "--verify", `${ref}^{commit}`],
+      {
+        cwd: this.path,
+        allowFailure: true,
+        timeoutMs: WORKSPACE_STATUS_GIT_TIMEOUT_MS,
+      },
+    );
+    return result.exitCode === 0 ? result.stdout.trim() || null : null;
+  }
+
+  private async readAheadBehind(
+    baseRef: string,
+  ): Promise<{ ahead: number; behind: number } | null> {
+    const result = await this.runGit(
+      ["rev-list", "--left-right", "--count", `${baseRef}...HEAD`],
+      {
+        cwd: this.path,
+        allowFailure: true,
+        timeoutMs: WORKSPACE_STATUS_GIT_TIMEOUT_MS,
+      },
+    );
+    if (result.exitCode !== 0) return null;
+    const [behind, ahead] = result.stdout
+      .trim()
+      .split(/\s+/)
+      .map((value) => Number.parseInt(value, 10));
+    return ahead !== undefined &&
+      behind !== undefined &&
+      Number.isFinite(ahead) &&
+      Number.isFinite(behind)
+      ? { ahead, behind }
+      : null;
+  }
+
+  private async hasUncommittedChanges(): Promise<boolean> {
+    const result = await this.runGit(
+      [
+        "--no-optional-locks",
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=normal",
+      ],
+      { cwd: this.path, timeoutMs: WORKSPACE_STATUS_GIT_TIMEOUT_MS },
+    );
+    return result.stdout.trim() !== "";
   }
 
   async getLocalStateFingerprint(): Promise<string> {
