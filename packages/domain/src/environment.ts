@@ -124,9 +124,7 @@ function describeDivergence(freshness: WorkspaceBaseFreshness): string {
     : ` The workspace ${reasons.join(" and ")}, so bb did not move it.`;
 }
 
-function describeSafeRefreshFailure(
-  freshness: WorkspaceBaseFreshness,
-): string {
+function describeSafeRefreshFailure(freshness: WorkspaceBaseFreshness): string {
   const error = freshness.fetchError;
   if (
     error === "Workspace HEAD is detached" ||
