@@ -67,11 +67,11 @@ counterpart, and records the exact SHA it used in the provisioning transcript:
 
 A long-lived worktree also drifts after later merges, so bb re-checks its
 merge base before every turn. If the worktree is clean, zero commits ahead, and
-behind, bb fast-forwards it before the agent runs. If it is dirty, locally
-ahead, diverged, or the fetch fails, bb changes nothing and instead tells the
-agent — with the exact refs, SHAs, and ahead/behind counts — that its view of
-the base branch is stale or unknown, so "this code does not exist" findings do
-not silently come from an old tree.
+behind, bb fast-forwards it before the agent runs. If it is detached, has a Git
+operation in progress, is dirty, locally ahead, diverged, or the fetch fails,
+bb changes nothing and instead tells the agent — with the exact refs, SHAs, and
+ahead/behind counts — that its view of the base branch is stale or unknown, so
+"this code does not exist" findings do not silently come from an old tree.
 
 `bb status` and `bb environment status <id>` print the same `Base freshness`
 line, and `bb environment get <id> --json` exposes it as `baseFreshness`.

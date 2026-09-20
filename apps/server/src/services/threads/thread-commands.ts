@@ -10,6 +10,7 @@ import {
   Thread,
   ClientTurnRequestId,
   EnvironmentStatus,
+  isStandaloneBuiltinCompactCommand,
   promptInputHasCommandMention,
 } from "@bb/domain";
 import {
@@ -244,6 +245,32 @@ function toRuntimeExecutionOptions(
   };
 }
 
+function prependTurnInstructions(
+  args: Pick<PreparedTurnSubmitCommandBuildArgs, "input" | "inputGroups">,
+  instructions: string | null,
+): { input: PromptInput[]; inputGroups?: PromptInput[][] } {
+  if (instructions === null || isStandaloneBuiltinCompactCommand(args.input)) {
+    return args;
+  }
+  const context: PromptInput = {
+    type: "text",
+    text: instructions,
+    mentions: [],
+    visibility: "agent-only",
+  };
+  return {
+    input: [context, ...args.input],
+    ...(args.inputGroups !== undefined
+      ? {
+          inputGroups: [
+            [context, ...args.inputGroups[0]!],
+            ...args.inputGroups.slice(1),
+          ],
+        }
+      : {}),
+  };
+}
+
 export async function buildExecutionOptions(
   deps: Pick<AppDeps, "db" | "hub" | "providerRegistry">,
   request: ExecutionOptionsRequest,
@@ -272,6 +299,7 @@ export async function buildThreadStartCommand(
     model: args.execution.model,
   });
   const bridgeLaunch = requireBridgeLaunchForProviderId(deps, args.providerId);
+  const prompt = prependTurnInstructions(args, runtimeContext.turnInstructions);
   return {
     type: "thread.start",
     environmentId: args.environment.id,
@@ -283,9 +311,9 @@ export async function buildThreadStartCommand(
     providerId: args.providerId,
     bridgeLaunch,
     requestId: args.requestId,
-    input: args.input,
-    ...(args.inputGroups !== undefined
-      ? { inputGroups: args.inputGroups }
+    input: prompt.input,
+    ...(prompt.inputGroups !== undefined
+      ? { inputGroups: prompt.inputGroups }
       : {}),
     options: toRuntimeExecutionOptions({
       ...args,
@@ -311,14 +339,18 @@ function buildPreparedTurnSubmitCommandPayload(
     args.deps,
     args.runtimeContext.providerId,
   );
+  const prompt = prependTurnInstructions(
+    args,
+    args.runtimeContext.turnInstructions,
+  );
   return {
     type: "turn.submit",
     environmentId: args.environmentId,
     threadId: args.threadId,
     bridgeLaunch,
-    input: args.input,
-    ...(args.inputGroups !== undefined
-      ? { inputGroups: args.inputGroups }
+    input: prompt.input,
+    ...(prompt.inputGroups !== undefined
+      ? { inputGroups: prompt.inputGroups }
       : {}),
     options: toRuntimeExecutionOptions({
       ...args,

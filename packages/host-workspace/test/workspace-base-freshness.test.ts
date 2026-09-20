@@ -2,8 +2,10 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { WorkspaceBaseFreshness } from "@bb/domain";
 import { Workspace } from "../src/workspace.js";
-import { runGit } from "../src/git.js";
+import { getGitCommonDir, runGit } from "../src/git.js";
+import { withGitRefMutationLock } from "bb-environment-provider-host/process-local-lock";
 
 const tempDirs: string[] = [];
 
@@ -80,6 +82,26 @@ describe("Workspace.refreshBase", () => {
     });
   });
 
+  it("waits for the canonical ref mutation lock before fetching", async () => {
+    const { clonePath, advanceOrigin } = await createClonedWorkspace();
+    await advanceOrigin();
+    const commonDir = await getGitCommonDir(clonePath);
+    let settled = false;
+    let refreshing!: Promise<WorkspaceBaseFreshness>;
+
+    await withGitRefMutationLock(commonDir, async () => {
+      refreshing = new Workspace(clonePath)
+        .refreshBase({ mergeBaseBranch: "main", allowFastForward: true })
+        .finally(() => {
+          settled = true;
+        });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(settled).toBe(false);
+    });
+
+    await expect(refreshing).resolves.toMatchObject({ fastForwarded: true });
+  });
+
   it.each([
     [
       "dirty",
@@ -143,6 +165,41 @@ describe("Workspace.refreshBase", () => {
 
     expect(freshness.behindCount).toBe(0);
     expect(freshness.fetchError).not.toBeNull();
+    expect(freshness.fastForwarded).toBe(false);
+    expect(await git(clonePath, "rev-parse", "HEAD")).toBe(headBefore);
+  });
+
+  it.each([
+    [
+      "detached HEAD",
+      "Workspace HEAD is detached",
+      async (clonePath: string, _remoteSha: string) => {
+        await git(clonePath, "switch", "--detach", "HEAD");
+      },
+    ],
+    [
+      "an in-progress merge",
+      "A Git merge operation is in progress",
+      async (clonePath: string, remoteSha: string) => {
+        const gitDir = path.resolve(
+          clonePath,
+          await git(clonePath, "rev-parse", "--git-dir"),
+        );
+        await fs.writeFile(path.join(gitDir, "MERGE_HEAD"), `${remoteSha}\n`);
+      },
+    ],
+  ])("does not move %s", async (_label, expectedError, enterUnsafeState) => {
+    const { clonePath, advanceOrigin } = await createClonedWorkspace();
+    const remoteSha = await advanceOrigin();
+    await enterUnsafeState(clonePath, remoteSha);
+    const headBefore = await git(clonePath, "rev-parse", "HEAD");
+
+    const freshness = await new Workspace(clonePath).refreshBase({
+      mergeBaseBranch: "main",
+      allowFastForward: true,
+    });
+
+    expect(freshness.fetchError).toBe(expectedError);
     expect(freshness.fastForwarded).toBe(false);
     expect(await git(clonePath, "rev-parse", "HEAD")).toBe(headBefore);
   });

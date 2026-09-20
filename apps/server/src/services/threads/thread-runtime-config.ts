@@ -71,6 +71,7 @@ export interface ResolvedThreadRuntimeCommandConfig {
   injectedSkillSources: HostDaemonInjectedSkillSource[];
   instructionMode: InstructionMode;
   instructions: string;
+  turnInstructions: string | null;
   projectId: string;
   providerId: string;
   threadStoragePath: string;
@@ -227,13 +228,10 @@ export async function resolveThreadRuntimeCommandConfig(
   const dynamicTools = dynamicToolContributions.map(
     (contribution) => contribution.tool,
   );
-  const baseFreshness = baseFreshnessInstructions(
+  const turnInstructions = baseFreshnessInstructions(
     await refreshEnvironmentBaseFreshness(deps, environment),
   );
   const instructionSections: string[] = [];
-  if (baseFreshness !== null) {
-    instructionSections.push(baseFreshness);
-  }
   for (const contribution of dynamicToolContributions) {
     if (!contribution.instructions) continue;
     if (contribution.pluginId === null) {
@@ -301,6 +299,7 @@ export async function resolveThreadRuntimeCommandConfig(
     injectedSkillSources,
     instructionMode: "append",
     instructions,
+    turnInstructions,
     projectId: args.thread.projectId,
     providerId: args.thread.providerId,
     threadStoragePath,

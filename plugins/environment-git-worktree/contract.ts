@@ -2,8 +2,44 @@ import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { environmentHostProgressSchema } from "bb-environment-provider-host/progress";
 
+const gitBranchForbiddenCharacterPattern = /[\u0000-\u001f\u007f\\:~^?*\[]/u;
+const gitReservedBranchNames = new Set([
+  "AUTO_MERGE",
+  "BISECT_HEAD",
+  "CHERRY_PICK_HEAD",
+  "FETCH_HEAD",
+  "HEAD",
+  "MERGE_HEAD",
+  "ORIG_HEAD",
+  "REVERT_HEAD",
+]);
+const gitBranchNameSchema = z.string().refine((name) => {
+  const components = name.split("/");
+  return (
+    name.length > 0 &&
+    name.trim().length > 0 &&
+    !name.startsWith("-") &&
+    !name.startsWith("/") &&
+    name !== "@" &&
+    !gitReservedBranchNames.has(name) &&
+    !gitBranchForbiddenCharacterPattern.test(name) &&
+    !/[ \t]/u.test(name) &&
+    !name.includes("..") &&
+    !name.includes("@{") &&
+    !name.includes("//") &&
+    !name.endsWith("/") &&
+    !name.endsWith(".") &&
+    components.every(
+      (component) =>
+        component.length > 0 &&
+        !component.startsWith(".") &&
+        !component.endsWith(".lock"),
+    )
+  );
+}, "Invalid git branch name");
+
 export const worktreeBaseBranchSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("named"), name: z.string().min(1) }).strict(),
+  z.object({ kind: z.literal("named"), name: gitBranchNameSchema }).strict(),
   z.object({ kind: z.literal("default") }).strict(),
 ]);
 export type WorktreeBaseBranch = z.infer<typeof worktreeBaseBranchSchema>;

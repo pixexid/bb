@@ -23,6 +23,7 @@ import {
   hostDaemonDaemonWsMessageSchema,
   hostDaemonEventBatchRequestSchema,
   hostDaemonEventBatchResponseSchema,
+  hostDaemonEnvironmentLaneForCommand,
   hostDaemonInteractiveInterruptRequestSchema,
   hostDaemonInteractiveInterruptResponseSchema,
   hostDaemonInjectedSkillSourceSchema,
@@ -1139,6 +1140,18 @@ describe("host-daemon command schemas", () => {
   it("uses the current host-daemon protocol version", () => {
     expect(HOST_DAEMON_PROTOCOL_VERSION).toBe(216);
     expect(HOST_ARTIFACT_MAX_BYTES).toBe(256 * 1024 * 1024);
+  });
+
+  it("runs workspace refreshes in the mutating environment lane", () => {
+    expect(
+      hostDaemonEnvironmentLaneForCommand({
+        type: "workspace.refreshBase",
+        environmentId: "env_123",
+        workspaceContext: { workspacePath: "/tmp/workspace" },
+        mergeBaseBranch: "origin/main",
+        allowFastForward: true,
+      }),
+    ).toBe("write");
   });
 
   it("uses relative host-plugin timeouts and bounds artifact declarations", () => {

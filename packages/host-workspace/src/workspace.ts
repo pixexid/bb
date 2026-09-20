@@ -1,12 +1,13 @@
-import type {
-  RawDiffFileStat,
-  ThreadGitDiffResponse,
-  WorkspaceCommitSummary,
-  WorkspaceDiffTarget,
-  WorkspaceFileStatus,
-  WorkspaceBaseFreshness,
-  WorkspaceFileStatusKind,
-  WorkspaceStatus,
+import {
+  gitBranchNameSchema,
+  type RawDiffFileStat,
+  type ThreadGitDiffResponse,
+  type WorkspaceCommitSummary,
+  type WorkspaceDiffTarget,
+  type WorkspaceFileStatus,
+  type WorkspaceBaseFreshness,
+  type WorkspaceFileStatusKind,
+  type WorkspaceStatus,
 } from "@bb/domain";
 import os from "node:os";
 import path from "node:path";
@@ -23,6 +24,8 @@ import {
   ensureGitRepo,
   getCheckoutRef,
   getCurrentBranch,
+  getGitCommonDir,
+  getWorkspaceGitOperation,
   parseNameStatusEntries,
   parseNameStatusSourceEntries,
   parseNumstatEntriesZ,
@@ -46,6 +49,7 @@ import {
 } from "./git.js";
 import fs from "node:fs/promises";
 import { withCheckoutMutationLock } from "./checkout-mutation-lock.js";
+import { withGitRefMutationLock } from "bb-environment-provider-host/process-local-lock";
 
 export interface DiffOptions {
   target?: WorkspaceDiffTarget;
@@ -735,6 +739,17 @@ export class Workspace {
     allowFastForward: boolean;
   }): Promise<WorkspaceBaseFreshness> {
     await ensureGitRepo(this.path, this.gitProcessOptions);
+    gitBranchNameSchema.parse(args.mergeBaseBranch);
+    const commonDir = await getGitCommonDir(this.path, this.gitProcessOptions);
+    return withGitRefMutationLock(commonDir, () =>
+      this.refreshBaseWithRefLock(args),
+    );
+  }
+
+  private async refreshBaseWithRefLock(args: {
+    mergeBaseBranch: string;
+    allowFastForward: boolean;
+  }): Promise<WorkspaceBaseFreshness> {
     const remoteRef = await this.resolveBaseRemoteRef(args.mergeBaseBranch);
     let fetchError: string | null = null;
     if (remoteRef !== null) {
@@ -761,11 +776,32 @@ export class Workspace {
     }
 
     const baseRef = remoteRef ?? args.mergeBaseBranch;
-    const counts = await this.readAheadBehind(baseRef);
-    const hasUncommittedChanges = await this.hasUncommittedChanges();
+    const [counts, hasUncommittedChanges, checkout, operation] =
+      await Promise.all([
+        this.readAheadBehind(baseRef),
+        this.hasUncommittedChanges(),
+        getCheckoutRef(this.path, {
+          timeoutMs: WORKSPACE_STATUS_GIT_TIMEOUT_MS,
+          ...this.gitProcessOptions,
+        }),
+        getWorkspaceGitOperation(this.path, {
+          ...this.gitProcessOptions,
+        }),
+      ]);
+    const unsafeState =
+      checkout.kind !== "branch"
+        ? checkout.kind === "detached"
+          ? "Workspace HEAD is detached"
+          : "Workspace HEAD is not on a branch"
+        : operation.kind === "none"
+          ? null
+          : operation.kind === "unknown"
+            ? operation.reason
+            : `A Git ${operation.kind} operation is in progress`;
     const canFastForward =
       args.allowFastForward &&
       fetchError === null &&
+      unsafeState === null &&
       counts !== null &&
       counts.ahead === 0 &&
       counts.behind > 0 &&
@@ -795,6 +831,7 @@ export class Workspace {
       fastForwarded,
       fetchError:
         fetchError ??
+        unsafeState ??
         (finalCounts === null ? `Cannot compare HEAD with ${baseRef}` : null),
       checkedAt: Date.now(),
     };
@@ -831,9 +868,15 @@ export class Workspace {
     );
     if (upstream.exitCode !== 0) return null;
     const resolved = upstream.stdout.trim();
-    return resolved.startsWith("refs/remotes/")
-      ? resolved.slice("refs/remotes/".length)
-      : null;
+    if (!resolved.startsWith("refs/remotes/")) return null;
+    const remoteRef = gitBranchNameSchema.safeParse(
+      resolved.slice("refs/remotes/".length),
+    );
+    if (remoteRef.success) return remoteRef.data;
+    throw new WorkspaceError(
+      "invalid_request",
+      "The configured upstream is not a valid Git branch name",
+    );
   }
 
   private async readCommitSha(ref: string): Promise<string | null> {

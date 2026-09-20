@@ -10,8 +10,6 @@ import { callHostOnlineRpcForWork } from "../hosts/online-rpc.js";
 import { workspaceContextFromPath } from "./workspace-command-target.js";
 import { resolveDeprecatedWorkspaceProvisionType } from "./environment-response.js";
 
-export const BASE_FRESHNESS_REFRESH_INTERVAL_MS = 60_000;
-
 function isRefreshable(environment: EnvironmentRow): boolean {
   return (
     environment.status === "ready" &&
@@ -37,14 +35,6 @@ export async function refreshEnvironmentBaseFreshness(
     return environment.baseFreshness ?? null;
   }
   const recorded = environment.baseFreshness ?? null;
-  if (
-    recorded !== null &&
-    recorded.mergeBaseBranch === mergeBaseBranch &&
-    Date.now() - recorded.checkedAt < BASE_FRESHNESS_REFRESH_INTERVAL_MS
-  ) {
-    return recorded;
-  }
-
   const unresolved = (message: string): WorkspaceBaseFreshness => ({
     mergeBaseBranch,
     remoteRef: null,

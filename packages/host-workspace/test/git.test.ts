@@ -407,6 +407,17 @@ describe("getWorkspaceGitOperation", () => {
       hasConflicts: true,
     });
   });
+
+  it("reports bisect as an in-progress operation", async () => {
+    const repoPath = await initConflictRepo();
+    await runGit(["bisect", "start"], { cwd: repoPath });
+
+    await expect(getWorkspaceGitOperation(repoPath)).resolves.toEqual({
+      kind: "unknown",
+      reason: "Git bisect is in progress",
+      hasConflicts: false,
+    });
+  });
 });
 
 describe("command timeouts", () => {

@@ -103,10 +103,16 @@ interface PorcelainEntry {
   worktreeStatus: string;
 }
 
-interface WorkspaceGitOperationMarker {
-  kind: ActiveWorkspaceGitOperationKind;
-  markerNames: string[];
-}
+type WorkspaceGitOperationMarker =
+  | {
+      kind: ActiveWorkspaceGitOperationKind;
+      markerNames: string[];
+    }
+  | {
+      kind: "unknown";
+      markerNames: string[];
+      reason: string;
+    };
 
 interface ParsedPorcelainPathToken {
   nextIndex: number;
@@ -128,6 +134,16 @@ const WORKSPACE_GIT_OPERATION_MARKERS: WorkspaceGitOperationMarker[] = [
   { kind: "merge", markerNames: ["MERGE_HEAD"] },
   { kind: "cherry-pick", markerNames: ["CHERRY_PICK_HEAD"] },
   { kind: "revert", markerNames: ["REVERT_HEAD"] },
+  {
+    kind: "unknown",
+    markerNames: ["BISECT_LOG", "BISECT_START"],
+    reason: "Git bisect is in progress",
+  },
+  {
+    kind: "unknown",
+    markerNames: ["sequencer"],
+    reason: "A Git sequencer operation is in progress",
+  },
 ];
 
 const GIT_QUOTED_PATH_ESCAPE_BYTES = new Map<string, number>([
@@ -917,6 +933,9 @@ export async function getWorkspaceGitOperation(
   const marker = await findWorkspaceGitOperationMarker(gitDir);
   if (!marker) {
     return { kind: "none" };
+  }
+  if (marker.kind === "unknown") {
+    return { kind: "unknown", reason: marker.reason, hasConflicts };
   }
   return buildActiveWorkspaceGitOperation(marker.kind, hasConflicts);
 }

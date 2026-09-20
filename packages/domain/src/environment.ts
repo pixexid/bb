@@ -1,4 +1,5 @@
 import { jsonValueSchema } from "./json-value.js";
+import { gitBranchNameSchema } from "./git-checkout.js";
 import { z } from "zod";
 
 export const environmentMachineSelectionSchema = z.discriminatedUnion("type", [
@@ -77,8 +78,8 @@ export const environmentLifecycleSchema = z.object({
 
 export const workspaceBaseFreshnessSchema = z
   .object({
-    mergeBaseBranch: z.string().min(1),
-    remoteRef: z.string().min(1).nullable(),
+    mergeBaseBranch: gitBranchNameSchema,
+    remoteRef: gitBranchNameSchema.nullable(),
     remoteSha: z.string().min(1).nullable(),
     headSha: z.string().min(1).nullable(),
     aheadCount: z.number().int().nonnegative(),
@@ -109,9 +110,7 @@ export function resolveWorkspaceBaseFreshnessState(
 
 function describeRemote(freshness: WorkspaceBaseFreshness): string {
   const ref = freshness.remoteRef ?? freshness.mergeBaseBranch;
-  return freshness.remoteSha === null
-    ? ref
-    : `${ref} (${freshness.remoteSha.slice(0, 12)})`;
+  return freshness.remoteSha === null ? ref : `${ref} (${freshness.remoteSha})`;
 }
 
 function describeDivergence(freshness: WorkspaceBaseFreshness): string {
@@ -125,11 +124,28 @@ function describeDivergence(freshness: WorkspaceBaseFreshness): string {
     : ` The workspace ${reasons.join(" and ")}, so bb did not move it.`;
 }
 
+function describeSafeRefreshFailure(
+  freshness: WorkspaceBaseFreshness,
+): string {
+  const error = freshness.fetchError;
+  if (
+    error === "Workspace HEAD is detached" ||
+    error === "Workspace HEAD is not on a branch" ||
+    error === "Git bisect is in progress" ||
+    error === "A Git sequencer operation is in progress" ||
+    /^A Git (?:merge|rebase|cherry-pick|revert) operation is in progress$/u.test(
+      error ?? "",
+    )
+  ) {
+    return ` ${error}.`;
+  }
+  return "";
+}
+
 export function describeWorkspaceBaseFreshness(
   freshness: WorkspaceBaseFreshness,
 ): string | null {
-  const head =
-    freshness.headSha === null ? "unknown" : freshness.headSha.slice(0, 12);
+  const head = freshness.headSha === null ? "unknown" : freshness.headSha;
   switch (resolveWorkspaceBaseFreshnessState(freshness)) {
     case "current":
       return null;
@@ -138,7 +154,7 @@ export function describeWorkspaceBaseFreshness(
     case "behind":
       return `The workspace is ${freshness.behindCount} commit(s) behind ${describeRemote(freshness)}; HEAD is ${head}.${describeDivergence(freshness)} Code merged into the base after ${head} is NOT present here, so absence of code in this workspace does not prove it is missing upstream. Fetch and rebase or merge before drawing conclusions about the base branch.`;
     case "unknown":
-      return `bb could not refresh ${freshness.mergeBaseBranch} for this workspace (${freshness.fetchError}). Freshness relative to the remote is UNKNOWN; HEAD is ${head}. Do not conclude that code is missing upstream without a successful fetch.`;
+      return `bb could not safely refresh this workspace.${describeSafeRefreshFailure(freshness)} Freshness relative to the remote is UNKNOWN; HEAD is ${head}. Do not conclude that code is missing upstream without a successful refresh. Check bb environment status for the unsafe Git state or host error, resolve it, and retry the turn.`;
   }
 }
 

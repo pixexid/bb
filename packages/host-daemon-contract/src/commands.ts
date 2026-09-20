@@ -1909,7 +1909,7 @@ export const hostDaemonCommandRegistry = {
     transport: "onlineRpc",
     retryable: false,
     flushEventsBeforeResult: false,
-    envLane: "read",
+    envLane: "write",
   }),
   "workspace.diff": defineHostDaemonCommandDescriptor({
     type: "workspace.diff",

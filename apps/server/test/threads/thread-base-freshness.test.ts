@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { getEnvironment } from "@bb/db";
-import type { WorkspaceBaseFreshness } from "@bb/domain";
-import { resolveThreadRuntimeCommandConfig } from "../../src/services/threads/thread-runtime-config.js";
+import {
+  createStandaloneBuiltinCompactCommandInput,
+  type PromptInput,
+  type WorkspaceBaseFreshness,
+} from "@bb/domain";
+import { prepareTurnSubmitCommandPayload } from "../../src/services/threads/thread-commands.js";
 import {
   seedEnvironment,
   seedHostSession,
@@ -10,6 +14,7 @@ import {
 } from "../helpers/seed.js";
 import { registerHostRpcResponder } from "../helpers/host-rpc.js";
 import { withTestHarness } from "../helpers/test-app.js";
+import { textInput } from "../helpers/prompt-input.js";
 
 const BEHIND_FRESHNESS: WorkspaceBaseFreshness = {
   mergeBaseBranch: "origin/main",
@@ -24,10 +29,14 @@ const BEHIND_FRESHNESS: WorkspaceBaseFreshness = {
   checkedAt: 1_700_000_000_000,
 };
 
-async function resolveWorktreeTurnInstructions(
-  freshness: WorkspaceBaseFreshness | { error: string },
+async function prepareWorktreeTurns(
+  freshness: (WorkspaceBaseFreshness | { error: string })[],
+  providerId = "codex",
+  inputs: PromptInput[][] = freshness.map((_value, index) =>
+    textInput(`turn ${index + 1}`),
+  ),
 ): Promise<{
-  instructions: string;
+  commands: Awaited<ReturnType<typeof prepareTurnSubmitCommandPayload>>[];
   recorded: WorkspaceBaseFreshness | null;
   refreshCommands: unknown[];
 }> {
@@ -48,20 +57,23 @@ async function resolveWorktreeTurnInstructions(
     const thread = seedThread(harness.deps, {
       projectId: project.id,
       environmentId: environment.id,
-      providerId: "codex",
+      providerId,
     });
+    let refreshIndex = 0;
     const responder = registerHostRpcResponder(harness, {
       hostId: host.id,
       sessionId: session.id,
       handle: ({ command }) => {
         if (command.type === "workspace.refreshBase") {
-          return "error" in freshness
+          const next = freshness[Math.min(refreshIndex, freshness.length - 1)]!;
+          refreshIndex += 1;
+          return "error" in next
             ? {
                 ok: false,
                 errorCode: "host_command_failed",
-                errorMessage: freshness.error,
+                errorMessage: next.error,
               }
-            : { ok: true, result: { outcome: "available", freshness } };
+            : { ok: true, result: { outcome: "available", freshness: next } };
         }
         if (command.type === "host.list_files") {
           return { ok: true, result: { files: [], truncated: false } };
@@ -77,13 +89,28 @@ async function resolveWorktreeTurnInstructions(
       },
     });
 
-    const config = await resolveThreadRuntimeCommandConfig(harness.deps, {
-      thread,
-      environment,
-      model: "gpt-5",
-    });
+    const commands = [];
+    for (let index = 0; index < freshness.length; index += 1) {
+      commands.push(
+        await prepareTurnSubmitCommandPayload(harness.deps, {
+          thread,
+          environment,
+          execution: {
+            model: "test-model",
+            permissionMode: "accept-edits",
+            reasoningLevel: "medium",
+            serviceTier: "default",
+            source: "client/turn/requested",
+          },
+          permissionEscalation: "ask",
+          input: inputs[index]!,
+          providerThreadId: "provider-existing",
+          target: { mode: "start" },
+        }),
+      );
+    }
     return {
-      instructions: config.instructions,
+      commands,
       recorded:
         getEnvironment(harness.deps.db, environment.id)?.baseFreshness ?? null,
       refreshCommands: responder.requests
@@ -94,41 +121,93 @@ async function resolveWorktreeTurnInstructions(
 }
 
 describe("managed worktree freshness at turn start", () => {
-  it("warns the agent with exact refs and counts when the workspace is behind", async () => {
-    const { instructions, recorded, refreshCommands } =
-      await resolveWorktreeTurnInstructions(BEHIND_FRESHNESS);
+  it.each(["claude-code", "codex", "pi", "acp-cursor"])(
+    "delivers exact negative freshness to an existing %s session",
+    async (providerId) => {
+      const { commands, recorded, refreshCommands } =
+        await prepareWorktreeTurns([BEHIND_FRESHNESS], providerId);
+      const command = commands[0]!;
 
-    expect(refreshCommands).toEqual([
-      expect.objectContaining({
-        mergeBaseBranch: "origin/main",
-        allowFastForward: true,
-      }),
+      expect(refreshCommands).toEqual([
+        expect.objectContaining({
+          mergeBaseBranch: "origin/main",
+          allowFastForward: true,
+        }),
+      ]);
+      expect(command.input[0]).toMatchObject({
+        type: "text",
+        visibility: "agent-only",
+        text: expect.stringContaining("12 commit(s) behind origin/main"),
+      });
+      expect(command.input[0]).toMatchObject({
+        text: expect.stringContaining("b".repeat(40)),
+      });
+      expect(command.input[0]).toMatchObject({
+        text: expect.stringContaining("a".repeat(40)),
+      });
+      expect(command.resumeContext.instructions).not.toContain(
+        "Workspace freshness",
+      );
+      expect(recorded).toEqual(BEHIND_FRESHNESS);
+    },
+  );
+
+  it("refreshes again when a second turn starts inside sixty seconds", async () => {
+    const { commands, refreshCommands } = await prepareWorktreeTurns([
+      { ...BEHIND_FRESHNESS, behindCount: 0, hasUncommittedChanges: false },
+      BEHIND_FRESHNESS,
     ]);
-    expect(instructions).toContain("12 commit(s) behind origin/main");
-    expect(instructions).toContain("bbbbbbbbbbbb");
-    expect(instructions).toContain("aaaaaaaaaaaa");
-    expect(instructions).toContain("does not prove it is missing upstream");
-    expect(recorded).toEqual(BEHIND_FRESHNESS);
+
+    expect(refreshCommands).toHaveLength(2);
+    expect(commands[0]?.input[0]).toMatchObject({ text: "turn 1" });
+    expect(commands[1]?.input[0]).toMatchObject({
+      visibility: "agent-only",
+      text: expect.stringContaining("12 commit(s) behind"),
+    });
+  });
+
+  it("delivers negative freshness on the first turn after compaction", async () => {
+    const compactInput = createStandaloneBuiltinCompactCommandInput();
+    const { commands } = await prepareWorktreeTurns(
+      [BEHIND_FRESHNESS, BEHIND_FRESHNESS],
+      "codex",
+      [compactInput, textInput("after compaction")],
+    );
+
+    expect(commands[0]?.input).toEqual(compactInput);
+    expect(commands[1]?.input[0]).toMatchObject({
+      visibility: "agent-only",
+      text: expect.stringContaining("12 commit(s) behind"),
+    });
   });
 
   it("stays silent once the workspace is current", async () => {
-    const { instructions } = await resolveWorktreeTurnInstructions({
-      ...BEHIND_FRESHNESS,
-      behindCount: 0,
-      hasUncommittedChanges: false,
-    });
+    const { commands } = await prepareWorktreeTurns([
+      {
+        ...BEHIND_FRESHNESS,
+        behindCount: 0,
+        hasUncommittedChanges: false,
+      },
+    ]);
 
-    expect(instructions).not.toContain("Workspace freshness");
+    expect(commands[0]?.input[0]).toMatchObject({ text: "turn 1" });
   });
 
   it("reports unknown freshness instead of silence when the fetch fails", async () => {
-    const { instructions, recorded } = await resolveWorktreeTurnInstructions({
-      error: "could not resolve host github.com",
-    });
+    const { commands, recorded } = await prepareWorktreeTurns([
+      { error: "could not resolve host github.com" },
+    ]);
+    const input = commands[0]?.input[0];
 
-    expect(instructions).toContain(
-      "Freshness relative to the remote is UNKNOWN",
-    );
+    expect(input).toMatchObject({
+      visibility: "agent-only",
+      text: expect.stringContaining(
+        "Freshness relative to the remote is UNKNOWN",
+      ),
+    });
+    expect(input).not.toMatchObject({
+      text: expect.stringContaining("could not resolve host github.com"),
+    });
     expect(recorded?.fetchError).toContain("could not resolve host github.com");
   });
 });
