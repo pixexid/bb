@@ -41,6 +41,7 @@ async function setup(
         status: "created",
         path: WORKTREE_PATH,
         baseBranch: "main",
+        baseSha: "a".repeat(40),
       };
     }
     if (call.method === "remove") return { status: "removed" };
@@ -198,7 +199,12 @@ describe("worktree resource operations", () => {
     });
     expect(fixture.steps).toEqual(["Creating worktree"]);
     expect(fixture.logs).toEqual(["cloning"]);
-    finish({ status: "created", path: WORKTREE_PATH, baseBranch: null });
+    finish({
+      status: "created",
+      path: WORKTREE_PATH,
+      baseBranch: null,
+      baseSha: null,
+    });
     await expect(creating).resolves.toMatchObject({ status: "created" });
   });
 

@@ -64,6 +64,7 @@ export const worktreeHostContract = defineRpcContract({
           status: z.literal("created"),
           path: z.string().min(1),
           baseBranch: z.string().min(1).nullable(),
+          baseSha: z.string().min(1).nullable(),
         })
         .strict(),
       z

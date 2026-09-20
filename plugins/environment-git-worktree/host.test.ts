@@ -87,6 +87,41 @@ async function createDetachedSingleBranchRepository(): Promise<{
   return { root, sourcePath, dataDir };
 }
 
+async function createClonedRepository(): Promise<{
+  root: string;
+  originPath: string;
+  sourcePath: string;
+  dataDir: string;
+  advanceOrigin: () => Promise<string>;
+}> {
+  const root = await mkdtemp(join(tmpdir(), "bb-worktree-plugin-clone-"));
+  temporaryRoots.push(root);
+  const originPath = join(root, "origin");
+  const sourcePath = join(root, "repo");
+  const dataDir = join(root, "plugin-data");
+  await mkdir(originPath, { recursive: true });
+  await mkdir(dataDir, { recursive: true });
+  await git(originPath, "init", "--initial-branch=main");
+  await writeFile(join(originPath, "README.md"), "hello\n");
+  await git(originPath, "add", ".");
+  await git(originPath, "commit", "-m", "initial");
+  await git(root, "clone", originPath, sourcePath);
+  let advanced = 0;
+  return {
+    root,
+    originPath,
+    sourcePath,
+    dataDir,
+    advanceOrigin: async () => {
+      advanced += 1;
+      await writeFile(join(originPath, `advanced-${advanced}.txt`), "new\n");
+      await git(originPath, "add", ".");
+      await git(originPath, "commit", "-m", `advance ${advanced}`);
+      return (await git(originPath, "rev-parse", "HEAD")).trim();
+    },
+  };
+}
+
 function createHarness(dataDir: string) {
   return experimental_createHostEntryHarness(createWorktreeHostEntry(), {
     experimental_paths: { dataDir, tempDir: join(dataDir, "tmp") },
@@ -255,6 +290,128 @@ describe("worktree host entry", () => {
     },
   );
 
+  it.each([
+    ["a named local branch", { kind: "named" as const, name: "main" }],
+    ["a named remote branch", { kind: "named" as const, name: "origin/main" }],
+    ["the default branch", { kind: "default" as const }],
+  ])(
+    "provisions %s at the remote head after the remote advances",
+    async (_label, baseBranch) => {
+      const { sourcePath, dataDir, advanceOrigin } =
+        await createClonedRepository();
+      const remoteSha = await advanceOrigin();
+      const harness = createHarness(dataDir);
+
+      const result = await harness.experimental_call("create", {
+        operationId: "fresh-base",
+        sourcePath,
+        pathKey: "thr_fresh",
+        branchName: "bb/fresh",
+        baseBranch,
+        branchMode: "reset",
+      });
+
+      expect(result).toMatchObject({
+        status: "created",
+        baseBranch: "origin/main",
+        baseSha: remoteSha,
+      });
+      if (result.status !== "created") throw new Error(result.message);
+      expect((await git(result.path, "rev-parse", "HEAD")).trim()).toBe(
+        remoteSha,
+      );
+      expect(existsSync(join(result.path, "advanced-1.txt"))).toBe(true);
+      await harness.experimental_dispose();
+    },
+  );
+
+  it("keeps a local-only branch off the remote and out of the fetch", async () => {
+    const { sourcePath, dataDir, advanceOrigin } =
+      await createClonedRepository();
+    await advanceOrigin();
+    await git(sourcePath, "checkout", "-b", "local-only");
+    await writeFile(join(sourcePath, "local.txt"), "local\n");
+    await git(sourcePath, "add", ".");
+    await git(sourcePath, "commit", "-m", "local only");
+    const localSha = (await git(sourcePath, "rev-parse", "local-only")).trim();
+    await git(sourcePath, "checkout", "main");
+    const harness = createHarness(dataDir);
+
+    const result = await harness.experimental_call("create", {
+      operationId: "local-only",
+      sourcePath,
+      pathKey: "thr_local",
+      branchName: "bb/local",
+      baseBranch: { kind: "named", name: "local-only" },
+      branchMode: "reset",
+    });
+
+    expect(result).toMatchObject({
+      status: "created",
+      baseBranch: "local-only",
+      baseSha: localSha,
+    });
+    if (result.status !== "created") throw new Error(result.message);
+    expect(existsSync(join(result.path, "local.txt"))).toBe(true);
+    expect(existsSync(join(result.path, "advanced-1.txt"))).toBe(false);
+    await harness.experimental_dispose();
+  });
+
+  it("preserves local commits when the tracking branch is ahead of the remote", async () => {
+    const { sourcePath, dataDir, advanceOrigin } =
+      await createClonedRepository();
+    await advanceOrigin();
+    await writeFile(join(sourcePath, "ahead.txt"), "ahead\n");
+    await git(sourcePath, "add", ".");
+    await git(sourcePath, "commit", "-m", "local ahead");
+    const localSha = (await git(sourcePath, "rev-parse", "main")).trim();
+    const harness = createHarness(dataDir);
+
+    const result = await harness.experimental_call("create", {
+      operationId: "local-ahead",
+      sourcePath,
+      pathKey: "thr_ahead",
+      branchName: "bb/ahead",
+      baseBranch: { kind: "named", name: "main" },
+      branchMode: "reset",
+    });
+
+    expect(result).toMatchObject({
+      status: "created",
+      baseBranch: "main",
+      baseSha: localSha,
+    });
+    if (result.status !== "created") throw new Error(result.message);
+    expect(existsSync(join(result.path, "ahead.txt"))).toBe(true);
+    await harness.experimental_dispose();
+  });
+
+  it("fails provisioning instead of falling back to a stale ref when the remote is unreachable", async () => {
+    const { sourcePath, dataDir, originPath, advanceOrigin } =
+      await createClonedRepository();
+    await advanceOrigin();
+    await rm(originPath, { recursive: true, force: true });
+    const harness = createHarness(dataDir);
+
+    const result = await harness.experimental_call("create", {
+      operationId: "offline",
+      sourcePath,
+      pathKey: "thr_offline",
+      branchName: "bb/offline",
+      baseBranch: { kind: "named", name: "main" },
+      branchMode: "reset",
+    });
+
+    expect(result.status).toBe("failed");
+    expect(existsSync(join(dataDir, "worktrees", "thr_offline", "repo"))).toBe(
+      false,
+    );
+    expect(await git(sourcePath, "worktree", "list")).not.toContain(
+      "thr_offline",
+    );
+    await harness.experimental_dispose();
+  });
+
   it("creates a bounded worktree path for a long repository name", async () => {
     const repositoryName = "repository".repeat(24);
     const { sourcePath, dataDir } =
@@ -384,7 +541,7 @@ describe("worktree host entry", () => {
       ...input,
       operationId: "resumed",
     });
-    expect(resumed).toEqual(first);
+    expect(resumed).toMatchObject({ status: "created", path: first.path });
     expect(existsSync(join(first.path, "survives.txt"))).toBe(true);
     await restartedHarness.experimental_dispose();
   });

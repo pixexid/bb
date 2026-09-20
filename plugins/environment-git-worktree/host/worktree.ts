@@ -41,6 +41,7 @@ import {
   WORKTREE_INCLUDE_FILE_NAME,
   type CopyWorktreeIncludeFilesResult,
 } from "./worktree-include.js";
+import { chooseProvisioningBaseRef } from "./base-ref.js";
 
 export type BranchMode = "reset" | "reuse-existing";
 
@@ -371,6 +372,142 @@ export async function fetchRemoteBaseBranch(args: {
   }
 }
 
+async function revParseCommit(
+  sourcePath: string,
+  ref: string,
+  signal: AbortSignal | undefined,
+): Promise<string | null> {
+  const result = await runGit(["rev-parse", "--verify", `${ref}^{commit}`], {
+    cwd: sourcePath,
+    ...signalOptions(signal),
+    allowFailure: true,
+  });
+  return result.exitCode === 0 ? result.stdout.trim() || null : null;
+}
+
+async function readUpstreamRef(
+  sourcePath: string,
+  branch: string,
+  signal: AbortSignal | undefined,
+): Promise<string | null> {
+  const result = await runGit(
+    ["rev-parse", "--symbolic-full-name", `${branch}@{upstream}`],
+    { cwd: sourcePath, ...signalOptions(signal), allowFailure: true },
+  );
+  if (result.exitCode !== 0) {
+    return null;
+  }
+  const upstream = result.stdout.trim();
+  return upstream.startsWith("refs/remotes/")
+    ? upstream.slice("refs/remotes/".length)
+    : null;
+}
+
+export async function resolveProvisioningBase(args: {
+  sourcePath: string;
+  baseBranch: string;
+  onProgress: ProgressCallback | undefined;
+  signal: AbortSignal | undefined;
+}): Promise<{ ref: string; sha: string }> {
+  const explicitRemote = await resolveRemoteBaseBranch(
+    args.sourcePath,
+    args.baseBranch,
+    args.signal,
+  );
+  const localRef = (await hasRef(
+    args.sourcePath,
+    `refs/heads/${args.baseBranch}`,
+  ))
+    ? args.baseBranch
+    : null;
+  const remoteRef =
+    explicitRemote !== null
+      ? args.baseBranch
+      : localRef === null
+        ? null
+        : await readUpstreamRef(args.sourcePath, localRef, args.signal);
+
+  if (remoteRef === null) {
+    const sha = await revParseCommit(
+      args.sourcePath,
+      args.baseBranch,
+      args.signal,
+    );
+    if (sha === null) {
+      throw new WorkspaceError(
+        "missing_base_branch",
+        `Cannot resolve base ${args.baseBranch} in ${args.sourcePath}`,
+      );
+    }
+    return { ref: args.baseBranch, sha };
+  }
+
+  await fetchRemoteBaseBranch({
+    sourcePath: args.sourcePath,
+    baseBranch: remoteRef,
+    onProgress: args.onProgress,
+    signal: args.signal,
+  });
+  throwIfProvisionAborted(args.signal);
+
+  const [localSha, remoteSha] = await Promise.all([
+    localRef === null
+      ? Promise.resolve(null)
+      : revParseCommit(args.sourcePath, localRef, args.signal),
+    revParseCommit(args.sourcePath, remoteRef, args.signal),
+  ]);
+  const localIsAncestorOfRemote =
+    explicitRemote !== null || localRef === null || remoteSha === null
+      ? null
+      : await isAncestor(args.sourcePath, localRef, remoteRef, args.signal);
+  const chosen =
+    explicitRemote !== null
+      ? remoteSha === null
+        ? null
+        : remoteRef
+      : chooseProvisioningBaseRef({
+          localRef,
+          remoteRef,
+          localSha,
+          remoteSha,
+          localIsAncestorOfRemote,
+        });
+  if (chosen === null) {
+    throw new WorkspaceError(
+      "missing_base_branch",
+      `Cannot resolve base ${args.baseBranch} in ${args.sourcePath}`,
+    );
+  }
+  const sha = chosen === remoteRef ? remoteSha : localSha;
+  if (sha === null) {
+    throw new WorkspaceError(
+      "missing_base_branch",
+      `Cannot resolve base ${chosen} in ${args.sourcePath}`,
+    );
+  }
+  emitOutput(
+    args.onProgress,
+    "git-base",
+    `Basing the worktree on ${chosen} at ${sha}`,
+  );
+  return { ref: chosen, sha };
+}
+
+async function isAncestor(
+  sourcePath: string,
+  ancestorRef: string,
+  descendantRef: string,
+  signal: AbortSignal | undefined,
+): Promise<boolean | null> {
+  const result = await runGit(
+    ["merge-base", "--is-ancestor", ancestorRef, descendantRef],
+    { cwd: sourcePath, ...signalOptions(signal), allowFailure: true },
+  );
+  if (result.exitCode === 0) return true;
+  if (result.exitCode === 1) return false;
+  return null;
+}
+
 function summarizePaths(paths: readonly string[]): string {
   const shown = paths.slice(0, WORKTREE_INCLUDE_TRANSCRIPT_PATH_LIMIT);
   const hiddenCount = paths.length - shown.length;
@@ -475,22 +612,32 @@ async function removeCreateTarget(args: CreateWorktreeArgs): Promise<void> {
   });
 }
 
+export interface CreatedWorktree {
+  path: string;
+  baseBranch: string | null;
+  baseSha: string | null;
+}
+
 export async function createWorktree(
   args: CreateWorktreeArgs,
-): Promise<{ path: string }> {
+): Promise<CreatedWorktree> {
   throwIfProvisionAborted(args.signal);
   const existingWorkspaceMatches = await ensureExistingWorkspaceMatches(
     args.targetPath,
     args.branchName,
     args.signal,
   );
+  const unresolvedBase = {
+    baseBranch: args.baseBranch,
+    baseSha: null,
+  } as const;
   if (existingWorkspaceMatches) {
     if ((await readCompletedBranch(args.completionPath)) === args.branchName) {
-      return { path: args.targetPath };
+      return { path: args.targetPath, ...unresolvedBase };
     }
     try {
       await finishWorktreeSetup(args);
-      return { path: args.targetPath };
+      return { path: args.targetPath, ...unresolvedBase };
     } catch (error) {
       await removeCreateTarget(args);
       throw error;
@@ -535,31 +682,36 @@ export async function createWorktree(
     (await hasRef(args.sourcePath, `refs/heads/${args.branchName}`));
 
   let gitArgs: string[];
+  let resolvedBase: { ref: string | null; sha: string | null } = {
+    ref: args.baseBranch,
+    sha: null,
+  };
   if (reuseExistingBranch) {
     gitArgs = ["worktree", "add", args.targetPath, args.branchName];
   } else {
-    const baseBranch =
+    const requestedBase =
       args.baseBranch ?? (await readDefaultBranch(args.sourcePath));
-    if (!baseBranch) {
+    if (!requestedBase) {
       throw new WorkspaceError(
         "missing_default_branch",
         `Cannot resolve default branch for source: ${args.sourcePath}`,
       );
     }
     throwIfProvisionAborted(args.signal);
-    await fetchRemoteBaseBranch({
+    const base = await resolveProvisioningBase({
       sourcePath: args.sourcePath,
-      baseBranch,
+      baseBranch: requestedBase,
       onProgress: args.onProgress,
       signal: args.signal,
     });
+    resolvedBase = base;
     gitArgs = [
       "worktree",
       "add",
       "-B",
       args.branchName,
       args.targetPath,
-      baseBranch,
+      base.sha,
     ];
   }
 
@@ -588,7 +740,11 @@ export async function createWorktree(
     });
     worktreeCreated = true;
     await finishWorktreeSetup(args);
-    return { path: args.targetPath };
+    return {
+      path: args.targetPath,
+      baseBranch: resolvedBase.ref,
+      baseSha: resolvedBase.sha,
+    };
   } catch (error) {
     if (!worktreeCreated) {
       emitStep({
@@ -710,7 +866,10 @@ export async function resolveAdoptableWorktree(args: {
   | { status: "failed"; message: string }
 > {
   const adoptable = await listAdoptableWorktrees(args);
-  const entry = findWorktreeEntry(adoptable, await realpathOrResolved(args.path));
+  const entry = findWorktreeEntry(
+    adoptable,
+    await realpathOrResolved(args.path),
+  );
   if (entry === null) {
     return {
       status: "failed",
